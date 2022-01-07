@@ -1,7 +1,18 @@
 # Put a file similar to this in your home directory as ~/.codesync.yaml to
 # configure codesync's options.
 
+# Config file version, so codesync knows how to parse the config correctly
+version: 0.1
+
+# Bulk of config is in here
 providers:
+  # In general "_" denotes default and more specific configs inherit the default.
+  _:
+    repos:
+      _:
+        # Set the default or main branch for the repo. Defaults to "main", but
+        # some repos use "master", "develop", etc.
+        default_branch: main
   github.com:
     auth:
       # You can set the GitHub token here or use the GITHUB_TOKEN envvar.
@@ -23,6 +34,9 @@ providers:
         enabled: false
       sapslaj:
         enabled: true
+        # All of the possible default branches for this org in case the default
+        # branch is inconsistent between repos.
+        default_branches: ["main", "master"]
         repos:
           _:
             actions:
