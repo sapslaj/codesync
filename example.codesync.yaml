@@ -4,9 +4,14 @@
 # Config file version, so codesync knows how to parse the config correctly
 version: 0.1
 
+# Directory where the codesync hierarchy lives. Defaults to ~/src but option
+# is where you can change that.
+src_dir: ~/code
+
 # Bulk of config is in here
 providers:
-  # In general "_" denotes default and more specific configs inherit the default.
+  # In general "_" denotes default and more specific configs inherit the
+  # default.
   _:
     repos:
       _:
@@ -48,5 +53,6 @@ providers:
               # exception if a repo in this state is encountered.
               orphaned: [raise]
           broken-repo:
-            # If you specifically don't want to process a particular repo for whatever reason, you can disable it
+            # If you specifically don't want to process a particular repo for
+            # whatever reason, you can disable it
             enabled: false

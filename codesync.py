@@ -4,26 +4,29 @@ import os
 import re
 from functools import reduce
 from glob import glob
-from os import PathLike
-from typing import Any, Iterable, Literal, Optional
+from typing import Any, Iterable, Literal, Optional, Type
 
+import ruyaml
 from github import Github
 from github.Repository import Repository
 from mergedeep import merge
-import ruyaml
 
 RepoAction = Literal["clone", "delete", "pull", "raise"]
 RepoState = Literal["active", "archived", "orphaned"]
 
+DEFAULT_SRC_DIR = "~/src"
+DEFAULT_DEFAULT_BRANCH = "main"  # lovely name
+
 config = {
     "version": 0.1,
+    "src_dir": DEFAULT_SRC_DIR,
     "providers": {
         "_": {
             "repos": {
                 "_": {
                     "enabled": False,
                     "state": "active",
-                    "default_branch": "main",
+                    "default_branch": DEFAULT_DEFAULT_BRANCH,
                 },
             },
         },
@@ -31,7 +34,7 @@ config = {
             "orgs": {
                 "_": {
                     "enabled": True,
-                    "default_branches": ["main"],
+                    "default_branches": [DEFAULT_DEFAULT_BRANCH],
                     "repos": {
                         "_": {
                             "enabled": True,
@@ -40,7 +43,7 @@ config = {
                                 "active": ["pull"],
                                 "archived": [],
                                 "orphaned": [],
-                            }
+                            },
                         },
                     },
                 },
@@ -64,11 +67,11 @@ def run_command(cmd, dry_run=False):
         os.system(cmd)
 
 
-def path_glob(path: PathLike) -> dict[str, str]:
-    return dict([(d, os.path.split(d)[-1]) for d in glob(path) if os.path.isdir(d)])
+def path_glob(path: str) -> dict[str, str]:
+    return dict([(str(d), str(os.path.split(d)[-1])) for d in glob(path) if os.path.isdir(d)])
 
 
-def git_clone(clone_url: str, destination: PathLike):
+def git_clone(clone_url: str, destination: str):
     run_command(f"git clone --recurse-submodules {clone_url} {destination}")
 
 
@@ -101,24 +104,29 @@ class Provider(object):
                 continue
             state = self._repo_config_get("state", repo_name=repo_name, default="active")
             actions: list[RepoAction] = self._repo_config_get("actions", state, repo_name=repo_name) or []
-            default_branch = self._repo_config_get("default_branch", repo_name=repo_name, default="main")
+            default_branch = self._repo_config_get(
+                "default_branch", repo_name=repo_name, default=DEFAULT_DEFAULT_BRANCH
+            )
             self.sync_repo(
                 repo_name=repo_name,
                 actions=actions,
                 repo_path=repo_path,
+                state=state,
                 default_branches=set([default_branch]),
             )
 
-    def path_join(self, *paths: Iterable[PathLike]) -> PathLike:
+    def path_join(self, *paths: Iterable[str]) -> str:
         return os.path.join(self.path, *paths)
 
-    def path_glob(self, path: PathLike) -> dict[str, str]:
+    def path_glob(self, path: str) -> dict[str, str]:
         return path_glob(self.path_join(path))
 
     def config_get(self, *keys: Iterable[str], default: Any = None) -> Any:
         return config_get("providers", self.provider, *keys, default=default)
 
-    def repo_action_reduce(self, actions: Iterable[RepoAction] = [], deletes: list[RepoAction] = []) -> Optional[RepoAction]:
+    def repo_action_reduce(
+        self, actions: Iterable[RepoAction] = [], deletes: list[RepoAction] = []
+    ) -> Optional[RepoAction]:
         return next(iter([action for action in actions if action not in deletes]), None)
 
     def sync_repo(
@@ -127,7 +135,7 @@ class Provider(object):
         actions: list[RepoAction],
         state: RepoState,
         default_branches: set[str],
-        repo_path: str = None,
+        repo_path: str,
         repo_clone_url: str = None,
         full_name: str = None,
     ):
@@ -217,9 +225,15 @@ class GitHubProvider(Provider):
         if not repo_path:
             repo_path = self.path_join(org_name, repo_name)
         state = self._repo_config_get("state", org_name=org_name, repo_name=repo_name, default=state)
-        actions: list[RepoAction] = self._repo_config_get("actions", state, org_name=org_name, repo_name=repo_name) or []
+        actions: list[RepoAction] = (
+            self._repo_config_get("actions", state, org_name=org_name, repo_name=repo_name) or []
+        )
         default_branch = self._repo_config_get("default_branch", org_name=org_name, repo_name=repo_name)
-        default_branches = [default_branch] if default_branch else self._org_config_get("default_branches", org_name=org_name, default=[])
+        default_branches = (
+            [default_branch]
+            if default_branch
+            else self._org_config_get("default_branches", org_name=org_name, default=[])
+        )
         self.sync_repo(
             full_name=f"{org_name}/{repo_name}",
             repo_name=repo_name,
@@ -227,7 +241,7 @@ class GitHubProvider(Provider):
             state=state,
             repo_path=repo_path,
             repo_clone_url=repo_clone_url,
-            default_branches=default_branches,
+            default_branches=set(default_branches),
         )
 
     def _get_org_repos(self, org_name: str) -> Iterable[Repository]:
@@ -253,9 +267,9 @@ def main():
     if os.path.exists(config_filename):
         with open(config_filename, "r") as f:
             config = merge(config, ruyaml.safe_load(f))
-    codedir = os.path.join(os.path.expanduser("~"), "code")
+    codedir = os.path.expanduser(config.get("src_dir", DEFAULT_SRC_DIR))
     for path, host_name in path_glob(f"{codedir}/*").items():
-        _Provider: Provider = {
+        _Provider: Type[Provider] = {
             "github.com": GitHubProvider,
         }.get(host_name, Provider)
         provider = _Provider(path=path)
