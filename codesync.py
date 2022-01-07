@@ -195,8 +195,9 @@ class GitHubProvider(Provider):
 def main():
     global config
     config_filename = os.path.join(os.path.expanduser("~"), ".codesync.yaml")
-    with open(config_filename, "r") as f:
-        config = merge(config, ruyaml.safe_load(f))
+    if os.path.exists(config_filename):
+        with open(config_filename, "r") as f:
+            config = merge(config, ruyaml.safe_load(f))
     codedir = os.path.join(os.path.expanduser("~"), "code")
     for path, host_name in path_glob(f"{codedir}/*").items():
         _Provider: Provider = {
