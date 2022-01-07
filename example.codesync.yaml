@@ -1,0 +1,38 @@
+# Put a file similar to this in your home directory as ~/.codesync.yaml to
+# configure codesync's options.
+
+providers:
+  github.com:
+    auth:
+      # You can set the GitHub token here or use the GITHUB_TOKEN envvar.
+      token: ghp_0123456789abcdefhijklmnopqrstuvwxyzA
+    orgs:
+      _:
+        # by default, codesync won't process orgs unless you explicitly set per
+        # org or change the default as seen here.
+        enabled: true
+        repos:
+          actions:
+            # change default to delete archived or orphaned repos (default does
+            # no action)
+            archived: [delete]
+            orphaned: [delete]
+      hashicorp:
+        # Hashicorp has a lot of repos, so to speed things up we can disable
+        # processing at an org level and just manually sync things.
+        enabled: false
+      sapslaj:
+        enabled: true
+        repos:
+          _:
+            actions:
+              # clone any new repos created in addition to pulling existing
+              # ones
+              active: [pull, clone]
+              # if theres a repo with no corresponding upstream, that might be
+              # a problem! raising the issue will quite literally raise an
+              # exception if a repo in this state is encountered.
+              orphaned: [raise]
+          broken-repo:
+            # If you specifically don't want to process a particular repo for whatever reason, you can disable it
+            enabled: false
