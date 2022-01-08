@@ -2,9 +2,9 @@
 import operator
 import os
 import re
+import sys
 from functools import reduce
 from glob import glob
-import sys
 from typing import Any, Iterable, Literal, Optional, Type
 
 import ruyaml
@@ -12,16 +12,15 @@ from github import Github
 from github.Repository import Repository
 from mergedeep import merge
 
-RepoAction = Literal["clone", "delete", "pull", "raise"]
+RepoAction = Literal["clone", "delete", "pull", "raise", "nop"]
 RepoState = Literal["active", "archived", "orphaned"]
 
-VERSION = 0.4
+VERSION = 0.5
 
 DEFAULT_SRC_DIR = "~/src"
 DEFAULT_DEFAULT_BRANCH = "main"  # lovely name
 
 config = {
-    "version": 0.1,
     "src_dir": DEFAULT_SRC_DIR,
     "providers": {
         "_": {
@@ -119,7 +118,7 @@ class Provider(object):
             )
 
     def path_join(self, *paths: Iterable[str]) -> str:
-        return os.path.join(self.path, *paths)
+        return os.path.join(self.path, *paths)  # type: ignore
 
     def path_glob(self, path: str) -> dict[str, str]:
         return path_glob(self.path_join(path))
@@ -130,7 +129,7 @@ class Provider(object):
     def repo_action_reduce(
         self, actions: Iterable[RepoAction] = [], deletes: list[RepoAction] = []
     ) -> Optional[RepoAction]:
-        return next(iter([action for action in actions if action not in deletes]), None)
+        return next(iter([action for action in actions if action not in deletes]), None)  # type: ignore
 
     def sync_repo(
         self,
@@ -139,8 +138,8 @@ class Provider(object):
         state: RepoState,
         default_branches: set[str],
         repo_path: str,
-        repo_clone_url: str = None,
-        full_name: str = None,
+        repo_clone_url: Optional[str] = None,
+        full_name: Optional[str] = None,
     ):
         if not full_name:
             full_name = repo_name
@@ -150,6 +149,8 @@ class Provider(object):
             action = self.repo_action_reduce(actions=actions, deletes=["delete", "pull"])
         print(f"{full_name}: action={action}")
         match action:
+            case "nop":
+                pass
             case "raise":
                 raise Exception(
                     f"{full_name} needs your attention",
@@ -191,7 +192,9 @@ class GitHubProvider(Provider):
         self.github = Github(self.config_get("auth", "token", default=os.environ.get("GITHUB_TOKEN")))
 
     def sync(self):
-        for org_name in self.path_glob("*").values():
+        config_orgs: list[str] = [org for org in self.config_get("orgs").keys() if org != "_"]
+        fs_orgs: list[str] = list(self.path_glob("*").values())
+        for org_name in set(config_orgs + fs_orgs):
             if not self._org_config_get("enabled", org_name=org_name):
                 continue
             repos = self._get_org_repos(org_name=org_name)
@@ -201,6 +204,7 @@ class GitHubProvider(Provider):
                     repo_name=repo.name,
                     state=("archived" if repo.archived else "active"),
                     repo_clone_url=repo.clone_url,
+                    topics=repo.get_topics(),
                 )
             current_repos = self.path_glob(f"{org_name}/*")
             remote_repo_names = [r.name for r in repos]
@@ -219,6 +223,7 @@ class GitHubProvider(Provider):
         org_name: str,
         repo_name: str,
         state: RepoState,
+        topics: list[str] = [],
         repo_path: str = None,
         repo_clone_url: str = None,
     ):
@@ -228,9 +233,7 @@ class GitHubProvider(Provider):
         if not repo_path:
             repo_path = self.path_join(org_name, repo_name)
         state = self._repo_config_get("state", org_name=org_name, repo_name=repo_name, default=state)
-        actions: list[RepoAction] = (
-            self._repo_config_get("actions", state, org_name=org_name, repo_name=repo_name) or []
-        )
+        actions = self._repo_actions_get(org_name=org_name, repo_name=repo_name, state=state, topics=topics)
         default_branch = self._repo_config_get("default_branch", org_name=org_name, repo_name=repo_name)
         default_branches = (
             [default_branch]
@@ -262,6 +265,20 @@ class GitHubProvider(Provider):
         default = super()._repo_config_get(*keys, repo_name=repo_name, default=default)
         default = self._org_config_get("repos", "_", *keys, org_name=org_name, default=default)
         return self._org_config_get("repos", repo_name, *keys, org_name=org_name, default=default)
+
+    def _repo_actions_get(self, org_name: str, repo_name: str, state: str, topics: list[str] = []) -> list[RepoAction]:
+        repo_actions = self._org_config_get("repos", repo_name, "actions", state, org_name=org_name, default=[])
+        if repo_actions:
+            return repo_actions
+        topic_actions: list[list[RepoAction]] = [
+            self._org_config_get("topics", topic, "actions", state, org_name=org_name, default=[]) for topic in topics
+        ]
+        if topic_actions:
+            return list(set(reduce(operator.add, topic_actions)))
+        org_actions = self._org_config_get("repos", "_", "actions", state, org_name=org_name, default=[])
+        if org_actions:
+            return org_actions
+        return super()._repo_config_get("actions", state, repo_name=repo_name, default=[])
 
 
 def main():
