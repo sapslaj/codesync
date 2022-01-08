@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.10
+#!/usr/bin/env python3
 import operator
 import os
 import re
@@ -21,6 +21,7 @@ DEFAULT_SRC_DIR = "~/src"
 DEFAULT_DEFAULT_BRANCH = "main"  # lovely name
 
 config = {
+    "version": VERSION,
     "src_dir": DEFAULT_SRC_DIR,
     "providers": {
         "_": {
@@ -148,36 +149,37 @@ class Provider(object):
         else:
             action = self.repo_action_reduce(actions=actions, deletes=["delete", "pull"])
         print(f"{full_name}: action={action}")
-        match action:
-            case "nop":
-                pass
-            case "raise":
-                raise Exception(
-                    f"{full_name} needs your attention",
-                    f"provider={self.__class__.__name__}",
-                    f"full_name={full_name}",
-                    f"repo_name={repo_name}",
-                    f"state={state}",
-                    f"repo_path={repo_path}",
-                    f"repo_clone_url={repo_clone_url}",
-                    f"actions={actions}",
-                    f"action={action}",
+        def _nop():
+            pass
+        def _raise():
+            raise Exception(
+                f"{full_name} needs your attention",
+                f"provider={self.__class__.__name__}",
+                f"full_name={full_name}",
+                f"repo_name={repo_name}",
+                f"state={state}",
+                f"repo_path={repo_path}",
+                f"repo_clone_url={repo_clone_url}",
+                f"actions={actions}",
+                f"action={action}",
+            )
+        def _delete():
+            if os.path.exists(repo_path):
+                run_command(f"rm -rf {repo_path}")
+        def _clone():
+            if repo_clone_url:
+                git_clone(
+                    clone_url=repo_clone_url,
+                    destination=repo_path,
                 )
-            case "delete":
-                if os.path.exists(repo_path):
-                    run_command(f"rm -rf {repo_path}")
-            case "clone":
-                if repo_clone_url:
-                    git_clone(
-                        clone_url=repo_clone_url,
-                        destination=repo_path,
-                    )
-            case "pull":
-                branch = repo_head_branch(repo_path=repo_path)
-                if branch in default_branches:
-                    git_pull(repo_path=repo_path)
-                elif branch is not None:
-                    git_fetch(repo_path=repo_path)
+        def _pull():
+            branch = repo_head_branch(repo_path=repo_path)
+            if branch in default_branches:
+                git_pull(repo_path=repo_path)
+            elif branch is not None:
+                git_fetch(repo_path=repo_path)
+        if action:
+            locals()[f"_{action}"]()
 
     def _repo_config_get(self, *keys: Iterable[str], repo_name: str, default: Any = None) -> Any:
         default = self.config_get("repos", "_", *keys, default=default)
