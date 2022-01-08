@@ -4,6 +4,7 @@ import os
 import re
 from functools import reduce
 from glob import glob
+import sys
 from typing import Any, Iterable, Literal, Optional, Type
 
 import ruyaml
@@ -13,6 +14,8 @@ from mergedeep import merge
 
 RepoAction = Literal["clone", "delete", "pull", "raise"]
 RepoState = Literal["active", "archived", "orphaned"]
+
+VERSION = 0.4
 
 DEFAULT_SRC_DIR = "~/src"
 DEFAULT_DEFAULT_BRANCH = "main"  # lovely name
@@ -267,6 +270,9 @@ def main():
     if os.path.exists(config_filename):
         with open(config_filename, "r") as f:
             config = merge(config, ruyaml.safe_load(f))
+    if config["version"] > VERSION:
+        print("codesync: fatal: configuration file version is higher than what this version of codesync can handle")
+        sys.exit(1)
     codedir = os.path.expanduser(config.get("src_dir", DEFAULT_SRC_DIR))
     for path, host_name in path_glob(f"{codedir}/*").items():
         _Provider: Type[Provider] = {
