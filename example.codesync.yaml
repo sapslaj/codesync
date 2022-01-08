@@ -28,11 +28,12 @@ providers:
         # org or change the default as seen here.
         enabled: true
         repos:
-          actions:
-            # change default to delete archived or orphaned repos (default does
-            # no action)
-            archived: [delete]
-            orphaned: [delete]
+          _:
+            actions:
+              # change default to delete archived or orphaned repos (default
+              # does no action)
+              archived: [delete]
+              orphaned: [delete]
       hashicorp:
         # Hashicorp has a lot of repos, so to speed things up we can disable
         # processing at an org level and just manually sync things.
