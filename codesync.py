@@ -14,15 +14,22 @@ from mergedeep import merge
 
 RepoAction = Literal["clone", "delete", "pull", "raise", "nop"]
 RepoState = Literal["active", "archived", "orphaned"]
+RepoCloneScheme = Literal["https", "ssh"]
 
-VERSION = 0.5
+VERSION = 0.6
 
 DEFAULT_SRC_DIR = "~/src"
 DEFAULT_DEFAULT_BRANCH = "main"  # lovely name
+DEFAULT_REPO_CLONE_SCHEME: RepoCloneScheme = "https"
 
 config = {
     "version": VERSION,
     "src_dir": DEFAULT_SRC_DIR,
+    "git": {
+        "clone": {"args": []},
+        "fetch": {"args": []},
+        "pull": {"args": []},
+    },
     "providers": {
         "_": {
             "repos": {
@@ -42,6 +49,7 @@ config = {
                         "_": {
                             "enabled": True,
                             "default_branch": None,
+                            "clone_scheme": DEFAULT_REPO_CLONE_SCHEME,
                             "actions": {
                                 "active": ["pull"],
                                 "archived": [],
@@ -75,15 +83,18 @@ def path_glob(path: str) -> dict[str, str]:
 
 
 def git_clone(clone_url: str, destination: str):
-    run_command(f"git clone --recurse-submodules {clone_url} {destination}")
+    args = " ".join(config_get("git", "clone", "args", default=[]))
+    run_command(f"git clone --recurse-submodules {clone_url} {destination} {args}")
 
 
 def git_fetch(repo_path: str):
-    run_command(f"git -C {repo_path} fetch --prune --verbose")
+    args = " ".join(config_get("git", "fetch", "args", default=[]))
+    run_command(f"git -C {repo_path} fetch {args}")
 
 
 def git_pull(repo_path: str):
-    run_command(f"git -C {repo_path} pull --verbose --ff-only --autostash")
+    args = " ".join(config_get("git", "pull", "args", default=[]))
+    run_command(f"git -C {repo_path} pull {args}")
 
 
 def repo_head_branch(repo_path: str) -> Optional[str]:
@@ -148,9 +159,11 @@ class Provider(object):
             action = self.repo_action_reduce(actions=actions, deletes=["clone"])
         else:
             action = self.repo_action_reduce(actions=actions, deletes=["delete", "pull"])
-        print(f"{full_name}: action={action}")
+        print(f"{full_name}: state={state} action={action}")
+
         def _nop():
             pass
+
         def _raise():
             raise Exception(
                 f"{full_name} needs your attention",
@@ -163,21 +176,25 @@ class Provider(object):
                 f"actions={actions}",
                 f"action={action}",
             )
+
         def _delete():
             if os.path.exists(repo_path):
                 run_command(f"rm -rf {repo_path}")
+
         def _clone():
             if repo_clone_url:
                 git_clone(
                     clone_url=repo_clone_url,
                     destination=repo_path,
                 )
+
         def _pull():
             branch = repo_head_branch(repo_path=repo_path)
             if branch in default_branches:
                 git_pull(repo_path=repo_path)
             elif branch is not None:
                 git_fetch(repo_path=repo_path)
+
         if action:
             locals()[f"_{action}"]()
 
@@ -201,11 +218,15 @@ class GitHubProvider(Provider):
                 continue
             repos = self._get_org_repos(org_name=org_name)
             for repo in repos:
+                repo_clone_url = {
+                    "https": repo.clone_url,
+                    "ssh": repo.ssh_url,
+                }.get(self._repo_config_get("clone_scheme", org_name=org_name, repo_name=repo.name), None)
                 self._sync_repo(
                     org_name=org_name,
                     repo_name=repo.name,
                     state=("archived" if repo.archived else "active"),
-                    repo_clone_url=repo.clone_url,
+                    repo_clone_url=repo_clone_url,
                     topics=repo.get_topics(),
                 )
             current_repos = self.path_glob(f"{org_name}/*")
@@ -257,7 +278,11 @@ class GitHubProvider(Provider):
         if user.type == "Organization":
             org = self.github.get_organization(org_name)
             return org.get_repos()
-        return user.get_repos()
+        # Gotta do this weird dance with users because GitHub's API doesn't
+        # support getting all accessible repos for a user, only an org.
+        public_repos = list(user.get_repos())
+        private_repos = [repo for repo in self.github.get_user().get_repos() if repo.owner.login == org_name]
+        return list(set(public_repos + private_repos))
 
     def _org_config_get(self, *keys: Iterable[str], org_name: str, default: Any = None) -> Any:
         default = self.config_get("orgs", "_", *keys, default=default)
