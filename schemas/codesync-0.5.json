@@ -76,7 +76,9 @@
   "properties": {
     "version": {
       "type": "number",
-      "description": "config file version"
+      "description": "config file version",
+      "minimum": 0.1,
+      "maximum": 0.5
     },
     "src_dir": {
       "type": "string",

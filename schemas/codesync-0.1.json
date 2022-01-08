@@ -67,7 +67,8 @@
   "properties": {
     "version": {
       "type": "number",
-      "description": "config file version"
+      "description": "config file version",
+      "const": 0.1
     },
     "providers": {
       "type": "object",

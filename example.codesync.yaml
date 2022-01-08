@@ -2,7 +2,7 @@
 # configure codesync's options.
 
 # Config file version, so codesync knows how to parse the config correctly
-version: 0.1
+version: 0.5
 
 # Directory where the codesync hierarchy lives. Defaults to ~/src but option
 # is where you can change that.

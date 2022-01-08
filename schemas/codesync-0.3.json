@@ -75,7 +75,9 @@
   "properties": {
     "version": {
       "type": "number",
-      "description": "config file version"
+      "description": "config file version",
+      "minimum": 0.1,
+      "maximum": 0.3
     },
     "providers": {
       "type": "object",
