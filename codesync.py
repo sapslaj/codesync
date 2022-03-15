@@ -297,11 +297,11 @@ class GitHubProvider(Provider):
         repo_actions = self._org_config_get("repos", repo_name, "actions", state, org_name=org_name, default=[])
         if repo_actions:
             return repo_actions
-        topic_actions: list[list[RepoAction]] = [
+        topic_actions: list[RepoAction] = list(set(reduce(operator.add, [
             self._org_config_get("topics", topic, "actions", state, org_name=org_name, default=[]) for topic in topics
-        ]
+        ], [])))
         if topic_actions:
-            return list(set(reduce(operator.add, topic_actions)))
+            return topic_actions
         org_actions = self._org_config_get("repos", "_", "actions", state, org_name=org_name, default=[])
         if org_actions:
             return org_actions
