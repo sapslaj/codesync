@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import asyncio
+import concurrent.futures
 import operator
 import os
 import re
@@ -109,10 +111,11 @@ def repo_head_branch(repo_path: str) -> Optional[str]:
 class Provider(object):
     provider = "_"
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, executor: Any) -> None:
         self.path = path
+        self.executor = executor
 
-    def sync(self) -> None:
+    def repos(self):
         for repo_path, repo_name in self.path_glob("*").items():
             if not self.config_get("repos", repo_name, "enabled"):
                 continue
@@ -121,13 +124,34 @@ class Provider(object):
             default_branch = self._repo_config_get(
                 "default_branch", repo_name=repo_name, default=DEFAULT_DEFAULT_BRANCH
             )
-            self.sync_repo(
-                repo_name=repo_name,
-                actions=actions,
+            yield dict(
                 repo_path=repo_path,
+                repo_name=repo_name,
                 state=state,
+                actions=actions,
                 default_branches=set([default_branch]),
             )
+
+    async def async_sync(self):
+        event_loop = asyncio.get_event_loop()
+        tasks = []
+        for repo in self.repos():
+            if not repo:
+                continue
+            tasks.append(
+                event_loop.run_in_executor(
+                    self.executor,
+                    lambda: self.sync_repo(**repo),
+                )
+            )
+        if not tasks:
+            return
+        completed, _ = await asyncio.wait(tasks)
+        return [t.result() for t in completed]
+
+    def sync(self) -> None:
+        for repo in self.repos():
+            self.sync_repo(**repo)
 
     def path_join(self, *paths: Iterable[str]) -> str:
         return os.path.join(self.path, *paths)  # type: ignore
@@ -206,11 +230,11 @@ class Provider(object):
 class GitHubProvider(Provider):
     provider = "github.com"
 
-    def __init__(self, path: str) -> None:
-        super().__init__(path)
+    def __init__(self, path: str, executor: Any) -> None:
+        super().__init__(path, executor)
         self.github = Github(self.config_get("auth", "token", default=os.environ.get("GITHUB_TOKEN")))
 
-    def sync(self):
+    def repos(self):
         config_orgs: list[str] = [org for org in self.config_get("orgs").keys() if org != "_"]
         fs_orgs: list[str] = list(self.path_glob("*").values())
         for org_name in set(config_orgs + fs_orgs):
@@ -222,7 +246,7 @@ class GitHubProvider(Provider):
                     "https": repo.clone_url,
                     "ssh": repo.ssh_url,
                 }.get(self._repo_config_get("clone_scheme", org_name=org_name, repo_name=repo.name), None)
-                self._sync_repo(
+                yield self._sync_repo(
                     org_name=org_name,
                     repo_name=repo.name,
                     state=("archived" if repo.archived else "active"),
@@ -234,7 +258,7 @@ class GitHubProvider(Provider):
             for repo_path, repo_name in current_repos.items():
                 if repo_name in remote_repo_names:
                     continue
-                self._sync_repo(
+                yield self._sync_repo(
                     org_name=org_name,
                     repo_name=repo_name,
                     state="orphaned",
@@ -263,7 +287,7 @@ class GitHubProvider(Provider):
             if default_branch
             else self._org_config_get("default_branches", org_name=org_name, default=[])
         )
-        self.sync_repo(
+        return dict(
             full_name=f"{org_name}/{repo_name}",
             repo_name=repo_name,
             actions=actions,
@@ -297,9 +321,18 @@ class GitHubProvider(Provider):
         repo_actions = self._org_config_get("repos", repo_name, "actions", state, org_name=org_name, default=[])
         if repo_actions:
             return repo_actions
-        topic_actions: list[RepoAction] = list(set(reduce(operator.add, [
-            self._org_config_get("topics", topic, "actions", state, org_name=org_name, default=[]) for topic in topics
-        ], [])))
+        topic_actions: list[RepoAction] = list(
+            set(
+                reduce(
+                    operator.add,
+                    [
+                        self._org_config_get("topics", topic, "actions", state, org_name=org_name, default=[])
+                        for topic in topics
+                    ],
+                    [],
+                )
+            )
+        )
         if topic_actions:
             return topic_actions
         org_actions = self._org_config_get("repos", "_", "actions", state, org_name=org_name, default=[])
@@ -308,7 +341,26 @@ class GitHubProvider(Provider):
         return super()._repo_config_get("actions", state, repo_name=repo_name, default=[])
 
 
-def main():
+async def async_main(executor):
+    global config
+    config_filename = os.path.join(os.path.expanduser("~"), ".codesync.yaml")
+    if os.path.exists(config_filename):
+        with open(config_filename, "r") as f:
+            config = merge(config, ruyaml.safe_load(f))
+    if config["version"] > VERSION:
+        print("codesync: fatal: configuration file version is higher than what this version of codesync can handle")
+        sys.exit(1)
+    event_loop = asyncio.get_event_loop()
+    codedir = os.path.expanduser(config.get("src_dir", DEFAULT_SRC_DIR))
+    for path, host_name in path_glob(f"{codedir}/*").items():
+        _Provider: Type[Provider] = {
+            "github.com": GitHubProvider,
+        }.get(host_name, Provider)
+        provider = _Provider(path=path, executor=executor)
+        event_loop.run_in_executor(executor, lambda: provider.async_sync())
+
+
+def main(executor=None):
     global config
     config_filename = os.path.join(os.path.expanduser("~"), ".codesync.yaml")
     if os.path.exists(config_filename):
@@ -318,13 +370,18 @@ def main():
         print("codesync: fatal: configuration file version is higher than what this version of codesync can handle")
         sys.exit(1)
     codedir = os.path.expanduser(config.get("src_dir", DEFAULT_SRC_DIR))
+    event_loop = asyncio.get_event_loop()
     for path, host_name in path_glob(f"{codedir}/*").items():
         _Provider: Type[Provider] = {
             "github.com": GitHubProvider,
         }.get(host_name, Provider)
-        provider = _Provider(path=path)
-        provider.sync()
+        provider = _Provider(path=path, executor=executor)
+        event_loop.run_until_complete(provider.async_sync())
 
 
 if __name__ == "__main__":
-    main()
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=64)
+    event_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(event_loop)
+    # event_loop.run_until_complete(async_main(executor))
+    main(executor)
