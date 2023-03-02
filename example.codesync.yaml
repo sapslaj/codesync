@@ -10,11 +10,14 @@ src_dir: ~/code
 
 # Bulk of config is in here
 providers:
-  # In general "_" denotes default and more specific configs inherit the
-  # default.
-  _:
+  generic:
     repos:
-      _:
+      # Using `/` as a key signifies a regular expression and all repos
+      # matching that regex will be selected and controlled by these settings.
+      # The most specific regex (the longest length) that matches is used.
+      # Note: the _entire name_ must match the expression. Using `/.*/` works
+      # as a catch all for default values.
+      /.*/:
         # Set the default or main branch for the repo. Defaults to "main", but
         # some repos use "master", "develop", etc.
         default_branch: main
@@ -23,12 +26,12 @@ providers:
       # You can set the GitHub token here or use the GITHUB_TOKEN envvar.
       token: ghp_0123456789abcdefhijklmnopqrstuvwxyzA
     orgs:
-      _:
+      /.*/:
         # by default, codesync won't process orgs unless you explicitly set per
         # org or change the default as seen here.
         enabled: true
         repos:
-          _:
+          /.*/:
             actions:
               # change default to delete archived or orphaned repos (default
               # does no action)
@@ -66,9 +69,5 @@ providers:
             # whatever reason, you can disable it
             enabled: false
           /test\-repo.*/i:
-            # Using `/` as a key signifies a regular expression and all repos
-            # matching that regex will be selected and controlled by these
-            # settings. The most specific regex (the longest length) that
-            # matches is used. Note: the _entire name_ must match the
-            # expression. Flags are supported after the trailing `/`.
+            # Flags are supported after the trailing `/` in a regex key.
             enabled: false
