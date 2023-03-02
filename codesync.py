@@ -149,6 +149,15 @@ def git_pull(repo_path: str):
     run_command(f"git -C {repo_path} pull {args}")
 
 
+def git_clean(repo_path: str):
+    run_command(
+        f"git -C {repo_path} fetch -p "
+        f"&& git -C {repo_path} for-each-ref --format '%(refname:short) %(upstream:track)' "
+        "| awk '$2 == \"[gone]\" {print $1}' "
+        f"| xargs -r git -C {repo_path} branch -D"
+    )
+
+
 def repo_head_branch(repo_path: str) -> Optional[str]:
     with open(os.path.join(repo_path, ".git", "HEAD"), "r") as head_file:
         head = head_file.readline().strip()
@@ -214,16 +223,15 @@ class Provider(object):
     ):
         if not full_name:
             full_name = repo_name
-        if os.path.exists(repo_path):
+        exists_locally = os.path.exists(repo_path)
+        if exists_locally:
             action = self.repo_action_reduce(actions=actions, deletes=["clone"])
         else:
             action = self.repo_action_reduce(actions=actions, deletes=["delete", "pull"])
-        print(f"{full_name}: {state=!s} {action=!s}")
+        clean = "clean" in actions and exists_locally
+        print(f"{full_name}: {state=!s} {action=!s} {clean=!s}")
 
-        def _nop():
-            pass
-
-        def _raise():
+        if action == "raise":
             raise Exception(
                 f"{full_name} needs your attention",
                 f"provider={self.__class__.__name__}",
@@ -235,27 +243,27 @@ class Provider(object):
                 f"{actions=}",
                 f"{action=}",
             )
-
-        def _delete():
-            if os.path.exists(repo_path):
+        elif action == "delete":
+            if exists_locally:
                 run_command(f"rm -rf {repo_path}")
-
-        def _clone():
+        elif action == "clone":
             if repo_clone_url:
                 git_clone(
                     clone_url=repo_clone_url,
                     destination=repo_path,
                 )
-
-        def _pull():
+        elif action == "pull":
             branch = repo_head_branch(repo_path=repo_path)
             if branch in default_branches:
                 git_pull(repo_path=repo_path)
             elif branch is not None:
                 git_fetch(repo_path=repo_path)
+        else:
+            # nop
+            pass
 
-        if action:
-            locals()[f"_{action}"]()
+        if clean:
+            git_clean(repo_path=repo_path)
 
     def _repo_config_get(self, *keys: Iterable[str], repo_name: str, default: Any = None) -> Any:
         default = self.config_get("repos", "_", *keys, default=default)
