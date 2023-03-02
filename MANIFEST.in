@@ -1,1 +1,1 @@
-include schemas/*.json
+include codesync_schemas/*.json

@@ -119,7 +119,9 @@ def config_validate():
         raise Exception(
             "codesync: fatal: configuration file version is higher than what this version of codesync can handle"
         )
-    schema = json.loads(importlib_resources.files("schemas").joinpath(f"codesync-{config_version}.json").read_text())
+    schema = json.loads(
+        importlib_resources.files("codesync_schemas").joinpath(f"codesync-{config_version}.json").read_text()
+    )
     jsonschema.validate(instance=config, schema=schema)
     print("Config is valid.")
 
