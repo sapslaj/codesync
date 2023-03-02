@@ -2,7 +2,7 @@
 # configure codesync's options.
 
 # Config file version, so codesync knows how to parse the config correctly
-version: 0.5
+version: 0.7
 
 # Directory where the codesync hierarchy lives. Defaults to ~/src but option
 # is where you can change that.
@@ -64,4 +64,11 @@ providers:
           broken-repo:
             # If you specifically don't want to process a particular repo for
             # whatever reason, you can disable it
+            enabled: false
+          /test\-repo.*/i:
+            # Using `/` as a key signifies a regular expression and all repos
+            # matching that regex will be selected and controlled by these
+            # settings. The most specific regex (the longest length) that
+            # matches is used. Note: the _entire name_ must match the
+            # expression. Flags are supported after the trailing `/`.
             enabled: false

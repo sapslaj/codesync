@@ -7,6 +7,7 @@ from functools import reduce
 from glob import glob
 from typing import Any, Iterable, Literal, Optional, Type
 
+import more_itertools
 import ruyaml
 from github import Github
 from github.Repository import Repository
@@ -67,9 +68,38 @@ config = {
 def config_get(*keys: Iterable[str], default: Any = None) -> Any:
     global config
     try:
-        return reduce(operator.getitem, keys, config)
+        return reduce(operator.getitem, keys, config)  # type:ignore
     except (KeyError, TypeError):
         return default
+
+
+def config_regex_get(*path: Iterable[str], keys: Iterable[str], default: Any = None) -> Any:
+    global config
+    key_groups = list(more_itertools.split_at(path, lambda k: k == "{}", 1))
+    before_keys, after_keys = [], []
+    if len(key_groups) == 1:
+        before_keys = key_groups[0]
+    elif len(key_groups) == 2:
+        before_keys, after_keys = key_groups
+    key, *child_keys = keys
+    parent = config_get(*before_keys)
+    if not isinstance(parent, dict):
+        return default
+    regex_keys = sorted([regex_key for regex_key in parent if regex_key.startswith("/")], key=len, reverse=True)
+    for regex_key in regex_keys:
+        if not isinstance(regex_key, str):
+            continue
+        parts = regex_key.split("/")
+        flags = parts[-1]
+        if flags:
+            flags = f"(?{flags})"
+        pattern = "/".join(parts[1:-1])
+        if re.fullmatch(f"{flags}{pattern}", key):
+            if child_keys:
+                return config_regex_get(*before_keys, regex_key, *after_keys, keys=child_keys, default=default)
+            else:
+                return config_get(*before_keys, regex_key, *after_keys, default=default)
+    return default
 
 
 def run_command(cmd, dry_run=False):
@@ -114,7 +144,7 @@ class Provider(object):
 
     def sync(self) -> None:
         for repo_path, repo_name in self.path_glob("*").items():
-            if not self.config_get("repos", repo_name, "enabled"):
+            if not self._repo_config_get("enabled", repo_name=repo_name):
                 continue
             state = self._repo_config_get("state", repo_name=repo_name, default="active")
             actions: list[RepoAction] = self._repo_config_get("actions", state, repo_name=repo_name) or []
@@ -138,9 +168,16 @@ class Provider(object):
     def config_get(self, *keys: Iterable[str], default: Any = None) -> Any:
         return config_get("providers", self.provider, *keys, default=default)
 
+    def config_regex_get(self, *path: Iterable[str], keys: Iterable[str], default: Any = None) -> Any:
+        return config_regex_get("providers", self.provider, *path, keys=keys, default=default)
+
     def repo_action_reduce(
-        self, actions: Iterable[RepoAction] = [], deletes: list[RepoAction] = []
+        self, actions: Optional[Iterable[RepoAction]] = None, deletes: Optional[Iterable[RepoAction]] = None
     ) -> Optional[RepoAction]:
+        if actions is None:
+            actions = []
+        if deletes is None:
+            deletes = []
         return next(iter([action for action in actions if action not in deletes]), None)  # type: ignore
 
     def sync_repo(
@@ -159,7 +196,7 @@ class Provider(object):
             action = self.repo_action_reduce(actions=actions, deletes=["clone"])
         else:
             action = self.repo_action_reduce(actions=actions, deletes=["delete", "pull"])
-        print(f"{full_name}: state={state} action={action}")
+        print(f"{full_name}: {state=!s} {action=!s}")
 
         def _nop():
             pass
@@ -168,13 +205,13 @@ class Provider(object):
             raise Exception(
                 f"{full_name} needs your attention",
                 f"provider={self.__class__.__name__}",
-                f"full_name={full_name}",
-                f"repo_name={repo_name}",
-                f"state={state}",
-                f"repo_path={repo_path}",
-                f"repo_clone_url={repo_clone_url}",
-                f"actions={actions}",
-                f"action={action}",
+                f"{full_name=}",
+                f"{repo_name=}",
+                f"{state=}",
+                f"{repo_path=}",
+                f"{repo_clone_url=}",
+                f"{actions=}",
+                f"{action=}",
             )
 
         def _delete():
@@ -200,7 +237,15 @@ class Provider(object):
 
     def _repo_config_get(self, *keys: Iterable[str], repo_name: str, default: Any = None) -> Any:
         default = self.config_get("repos", "_", *keys, default=default)
+        default = self.config_regex_get("repos", "{}", *keys, keys=[repo_name], default=default)
         return self.config_get("repos", repo_name, *keys, default=default)
+
+    def _repo_config_regex_get(
+        self, *path: Iterable[str], keys: Iterable[str], repo_name: str, default: Any = None
+    ) -> Any:
+        default = self.config_regex_get("repos", "_", *path, keys=keys, default=default)
+        default = self.config_regex_get("repos", "{}", *path, keys=[repo_name, *keys], default=default)
+        return self.config_regex_get("repos", repo_name, *path, keys=keys, default=default)
 
 
 class GitHubProvider(Provider):
@@ -246,12 +291,16 @@ class GitHubProvider(Provider):
         org_name: str,
         repo_name: str,
         state: RepoState,
-        topics: list[str] = [],
-        repo_path: str = None,
-        repo_clone_url: str = None,
+        topics: Optional[Iterable[str]] = None,
+        repo_path: Optional[str] = None,
+        repo_clone_url: Optional[str] = None,
     ):
+        if topics is None:
+            topics = []
+        full_name = f"{org_name}/{repo_name}"
         enabled = self._repo_config_get("enabled", org_name=org_name, repo_name=repo_name)
         if not enabled:
+            print(f"{full_name}: not enabled")
             return
         if not repo_path:
             repo_path = self.path_join(org_name, repo_name)
@@ -264,7 +313,7 @@ class GitHubProvider(Provider):
             else self._org_config_get("default_branches", org_name=org_name, default=[])
         )
         self.sync_repo(
-            full_name=f"{org_name}/{repo_name}",
+            full_name=full_name,
             repo_name=repo_name,
             actions=actions,
             state=state,
@@ -286,20 +335,64 @@ class GitHubProvider(Provider):
 
     def _org_config_get(self, *keys: Iterable[str], org_name: str, default: Any = None) -> Any:
         default = self.config_get("orgs", "_", *keys, default=default)
+        default = self.config_regex_get("orgs", "{}", *keys, keys=[org_name], default=default)
         return self.config_get("orgs", org_name, *keys, default=default)
+
+    def _org_config_regex_get(
+        self, *path: Iterable[str], keys: Iterable[str], org_name: str, default: Any = None
+    ) -> Any:
+        default = self.config_regex_get("orgs", "_", *path, keys=keys, default=default)
+        default = self.config_regex_get("orgs", "{}", *path, keys=[org_name, *keys], default=default)
+        return self.config_regex_get("orgs", org_name, *path, keys=keys, default=default)
 
     def _repo_config_get(self, *keys: Iterable[str], org_name: str, repo_name: str, default: Any = None) -> Any:
         default = super()._repo_config_get(*keys, repo_name=repo_name, default=default)
         default = self._org_config_get("repos", "_", *keys, org_name=org_name, default=default)
+        default = self._org_config_regex_get(
+            "repos", "{}", *keys, keys=[repo_name], org_name=org_name, default=default
+        )
         return self._org_config_get("repos", repo_name, *keys, org_name=org_name, default=default)
 
-    def _repo_actions_get(self, org_name: str, repo_name: str, state: str, topics: list[str] = []) -> list[RepoAction]:
+    def _repo_config_regex_get(
+        self,
+        *path: Iterable[str],
+        keys: Iterable[str],
+        org_name: str,
+        repo_name: str,
+        default: Any = None,
+    ) -> Any:
+        default = super()._repo_config_regex_get(*path, keys=keys, repo_name=repo_name, default=default)
+        default = self._org_config_regex_get("repos", "_", *path, keys=keys, org_name=org_name, default=default)
+        default = self._org_config_regex_get(
+            "repos", "{}", *path, keys=[repo_name, *keys], org_name=org_name, default=default
+        )
+        return self._org_config_regex_get("repos", repo_name, *path, keys=keys, org_name=org_name, default=default)
+
+    def _topic_actions_get(
+        self, org_name: str, topic: str, state: str, default: Optional[Iterable[RepoAction]] = None
+    ) -> Iterable[RepoAction]:
+        if default is None:
+            default = []
+        default = self._org_config_regex_get(
+            "topics", "{}", "actions", state, keys=[topic], org_name=org_name, default=default
+        )
+        return self._org_config_get("topics", topic, "actions", state, org_name=org_name, default=default)
+
+    def _repo_actions_get(
+        self, org_name: str, repo_name: str, state: str, topics: Optional[Iterable[str]] = None
+    ) -> list[RepoAction]:
+        if topics is None:
+            topics = []
         repo_actions = self._org_config_get("repos", repo_name, "actions", state, org_name=org_name, default=[])
         if repo_actions:
             return repo_actions
-        topic_actions: list[RepoAction] = list(set(reduce(operator.add, [
-            self._org_config_get("topics", topic, "actions", state, org_name=org_name, default=[]) for topic in topics
-        ], [])))
+        topic_actions = list(
+            set(
+                more_itertools.collapse(
+                    [self._topic_actions_get(org_name=org_name, topic=topic, state=state) for topic in topics]
+                )
+            )
+        )
         if topic_actions:
             return topic_actions
         org_actions = self._org_config_get("repos", "_", "actions", state, org_name=org_name, default=[])

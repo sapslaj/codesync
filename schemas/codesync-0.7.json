@@ -1,0 +1,228 @@
+{
+  "$defs": {
+    "identifierPattern": {
+      "type": "string",
+      "pattern": "^([a-z|A-Z|0-9|\\-|_]+|\\/.*\\/[aiLmsux]*)$"
+    },
+    "repoAction": {
+      "enum": [
+        "clone",
+        "delete",
+        "pull",
+        "raise",
+        "nop"
+      ]
+    },
+    "repoCloneScheme": {
+      "enum": [
+        "https",
+        "ssh"
+      ]
+    },
+    "repoState": {
+      "enum": [
+        "active",
+        "archived",
+        "orphaned"
+      ]
+    },
+    "repoConfig": {
+      "type": "object",
+      "description": "configuration for a repo",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Should repo processing occur"
+        },
+        "state": {
+          "$ref": "#/$defs/repoState",
+          "description": "Force repo to appear as a particular state"
+        },
+        "default_branch": {
+          "type": "string",
+          "description": "Set the default aka main branch for a repo explicitly"
+        },
+        "clone_scheme": {
+          "$ref": "#/$defs/repoCloneScheme",
+          "description": "Network scheme to use for the clone URL and thus the remote",
+          "default": "https"
+        },
+        "actions": {
+          "type": "object",
+          "description": "Set the actions that should take place given the repo state",
+          "propertyNames": {
+            "$ref": "#/$defs/repoState"
+          },
+          "patternProperties": {
+            ".*": {
+              "type": "array",
+              "description": "list of possible actions to take on a repo",
+              "items": {
+                "$ref": "#/$defs/repoAction"
+              }
+            }
+          }
+        }
+      }
+    },
+    "repoCollection": {
+      "type": "object",
+      "description": "An object consisting of repo names and their configuration",
+      "propertyNames": {
+        "$ref": "#/$defs/identifierPattern"
+      },
+      "patternProperties": {
+        ".*": {
+          "$ref": "#/$defs/repoConfig"
+        }
+      }
+    }
+  },
+  "title": "codesync configuration",
+  "type": "object",
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "version": {
+      "type": "number",
+      "description": "config file version",
+      "minimum": 0.1,
+      "maximum": 0.7
+    },
+    "src_dir": {
+      "type": "string",
+      "description": "directory where codesync hierarchy lives",
+      "default": "~/src",
+      "minLength": 1
+    },
+    "git": {
+      "type": "object",
+      "description": "Extra configuration for git operations",
+      "additionalProperties": false,
+      "properties": {
+        "clone": {
+          "type": "object",
+          "description": "Extra configuration for git-clone operations",
+          "additionalProperties": false,
+          "properties": {
+            "args": {
+              "type": "array",
+              "description": "Extra command arguments to append to git-clone",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "fetch": {
+          "type": "object",
+          "description": "Extra configuration for git-fetch operations",
+          "additionalProperties": false,
+          "properties": {
+            "args": {
+              "type": "array",
+              "description": "Extra command arguments to append to git-fetch",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "pull": {
+          "type": "object",
+          "description": "Extra configuration for git-pull operations",
+          "additionalProperties": false,
+          "properties": {
+            "args": {
+              "type": "array",
+              "description": "Extra command arguments to append to git-pull",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "providers": {
+      "type": "object",
+      "description": "Container for provider configuration",
+      "additionalProperties": false,
+      "properties": {
+        "_": {
+          "type": "object",
+          "description": "Default provider configuration",
+          "additionalProperties": false,
+          "properties": {
+            "repos": {
+              "$ref": "#/$defs/repoCollection"
+            }
+          }
+        },
+        "github.com": {
+          "type": "object",
+          "description": "GitHub provider configuration",
+          "additionalProperties": false,
+          "properties": {
+            "auth": {
+              "type": "object",
+              "description": "auth configuraton for GitHub provider",
+              "additionalProperties": false,
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": "GitHub personal access token. If unset will default to the value of environment variable `GITHUB_TOKEN`."
+                }
+              }
+            },
+            "orgs": {
+              "type": "object",
+              "description": "collection of GitHub organization or user names and their configuration",
+              "propertyNames": {
+                "$ref": "#/$defs/identifierPattern"
+              },
+              "patternProperties": {
+                ".*": {
+                  "type": "object",
+                  "description": "GitHub organization configuration",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "description": "Should codesync process this organization"
+                    },
+                    "default_branches": {
+                      "type": "array",
+                      "description": "List of all possible default branches for this org in case the default branch is inconsistent between repos",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": ["main"]
+                    },
+                    "topics": {
+                      "type": "object",
+                      "description": "GitHub repo topic configuration. Coniguration specified here is merged for every matching topic for a given repo, unlike repo defaults.",
+                      "propertyNames": {
+                        "$ref": "#/$defs/identifierPattern"
+                      },
+                      "patternProperties": {
+                        ".*": {
+                          "$ref": "#/$defs/repoConfig"
+                        }
+                      }
+                    },
+                    "repos": {
+                      "$ref": "#/$defs/repoCollection"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
