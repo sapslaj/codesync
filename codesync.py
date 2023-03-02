@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import operator
 import os
 import re
@@ -7,17 +8,26 @@ from functools import reduce
 from glob import glob
 from typing import Any, Iterable, Literal, Optional, Type
 
+import jsonschema
 import more_itertools
 import ruyaml
 from github import Github
 from github.Repository import Repository
 from mergedeep import merge
 
+if sys.version_info < (3, 9):
+    # importlib.resources either doesn't exist or lacks the files()
+    # function, so use the PyPI version:
+    import importlib_resources
+else:
+    # importlib.resources has files(), so use that:
+    import importlib.resources as importlib_resources
+
 RepoAction = Literal["clone", "delete", "pull", "raise", "nop"]
 RepoState = Literal["active", "archived", "orphaned"]
 RepoCloneScheme = Literal["https", "ssh"]
 
-VERSION = 0.6
+VERSION = 0.7
 
 DEFAULT_SRC_DIR = "~/src"
 DEFAULT_DEFAULT_BRANCH = "main"  # lovely name
@@ -49,7 +59,7 @@ config = {
                     "repos": {
                         "_": {
                             "enabled": True,
-                            "default_branch": None,
+                            "default_branch": DEFAULT_DEFAULT_BRANCH,
                             "clone_scheme": DEFAULT_REPO_CLONE_SCHEME,
                             "actions": {
                                 "active": ["pull"],
@@ -100,6 +110,18 @@ def config_regex_get(*path: Iterable[str], keys: Iterable[str], default: Any = N
             else:
                 return config_get(*before_keys, regex_key, *after_keys, default=default)
     return default
+
+
+def config_validate():
+    config_version = config["version"]
+    print(f"Checking config (version {config_version}).")
+    if config_version > VERSION:
+        raise Exception(
+            "codesync: fatal: configuration file version is higher than what this version of codesync can handle"
+        )
+    schema = json.loads(importlib_resources.files("schemas").joinpath(f"codesync-{config_version}.json").read_text())
+    jsonschema.validate(instance=config, schema=schema)
+    print("Config is valid.")
 
 
 def run_command(cmd, dry_run=False):
@@ -407,9 +429,7 @@ def main():
     if os.path.exists(config_filename):
         with open(config_filename, "r") as f:
             config = merge(config, ruyaml.safe_load(f))
-    if config["version"] > VERSION:
-        print("codesync: fatal: configuration file version is higher than what this version of codesync can handle")
-        sys.exit(1)
+    config_validate()
     codedir = os.path.expanduser(config.get("src_dir", DEFAULT_SRC_DIR))
     for path, host_name in path_glob(f"{codedir}/*").items():
         _Provider: Type[Provider] = {
