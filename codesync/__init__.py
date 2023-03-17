@@ -1,6 +1,6 @@
 from typing import Literal
 
-RepoAction = Literal["clone", "delete", "pull", "raise", "nop"]
+RepoAction = Literal["clean", "clone", "delete", "pull", "raise", "nop"]
 RepoState = Literal["active", "archived", "orphaned"]
 RepoCloneScheme = Literal["https", "ssh"]
 

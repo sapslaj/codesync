@@ -24,9 +24,9 @@ class SyncedRepo:
             self.full_name = self.repo_name
         exists_locally = os.path.exists(self.repo_path)
         if exists_locally:
-            action = self.repo_action_reduce(actions=self.actions, deletes=["clone"])
+            action = self.repo_action_reduce(actions=self.actions, deletes=["clean", "clone"])
         else:
-            action = self.repo_action_reduce(actions=self.actions, deletes=["delete", "pull"])
+            action = self.repo_action_reduce(actions=self.actions, deletes=["clean", "delete", "pull"])
         clean = "clean" in self.actions and exists_locally
         return RepoWorkerPoolJob(
             config=self.config,
