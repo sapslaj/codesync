@@ -88,9 +88,13 @@ class GitHubRepoProcessorJob:
         specific_repo_actions = self.org_config().get("repos", repo_name, "actions", state)
         if specific_repo_actions:
             return specific_repo_actions
-        topic_actions = list(
-            set(more_itertools.collapse([self.org_config().topic(topic).get("actions", state) for topic in topics]))
-        )
+        topic_actions = [
+            a
+            for a in set(
+                more_itertools.collapse([self.org_config().topic(topic).get("actions", state) for topic in topics])
+            )
+            if a is not None
+        ]
         if topic_actions:
             return topic_actions
         return self.repo_config().get("actions", state, default=default)

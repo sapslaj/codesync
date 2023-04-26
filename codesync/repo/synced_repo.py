@@ -44,7 +44,9 @@ class SyncedRepo:
         )
 
     def repo_action_reduce(
-        self, actions: Optional[Iterable[RepoAction]] = None, deletes: Optional[Iterable[RepoAction]] = None
+        self,
+        actions: Optional[Iterable[RepoAction]] = None,
+        deletes: Optional[Iterable[RepoAction]] = None,
     ) -> Optional[RepoAction]:
         if actions is None:
             actions = []

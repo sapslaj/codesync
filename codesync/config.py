@@ -98,7 +98,12 @@ class Config:
         except (KeyError, TypeError):
             return default
 
-    def get(self, *path: Iterable[str], keys: Optional[Iterable[str]] = None, default: Any = None) -> Any:
+    def get(
+        self,
+        *path: Iterable[str],
+        keys: Optional[Iterable[str]] = None,
+        default: Any = None,
+    ) -> Any:
         if not keys:
             return self.get_raw(*path, default=default)
         key_groups = list(more_itertools.split_at(path, lambda k: k == "{}", 1))
@@ -116,7 +121,11 @@ class Config:
                 return self.get(*before_keys, key, *after_keys, keys=child_keys, default=default)
             else:
                 return self.get_raw(*before_keys, key, *after_keys, default=default)
-        regex_keys = sorted([regex_key for regex_key in parent if regex_key.startswith("/")], key=len, reverse=True)
+        regex_keys = sorted(
+            [regex_key for regex_key in parent if regex_key.startswith("/")],
+            key=len,
+            reverse=True,
+        )
         for regex_key in regex_keys:
             if not isinstance(regex_key, str):
                 continue
@@ -127,7 +136,13 @@ class Config:
             pattern = "/".join(parts[1:-1])
             if re.fullmatch(f"{flags}{pattern}", key):
                 if child_keys:
-                    return self.get(*before_keys, regex_key, *after_keys, keys=child_keys, default=default)
+                    return self.get(
+                        *before_keys,
+                        regex_key,
+                        *after_keys,
+                        keys=child_keys,
+                        default=default,
+                    )
                 else:
                     return self.get_raw(*before_keys, regex_key, *after_keys, default=default)
         return default
