@@ -52,4 +52,7 @@ class SyncedRepo:
             actions = []
         if deletes is None:
             deletes = []
-        return next(iter([action for action in actions if action not in deletes]), None)  # type: ignore
+        for action in actions:
+            if action in deletes:
+                continue
+            return action

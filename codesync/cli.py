@@ -1,4 +1,6 @@
+import argparse
 import os
+import sys
 from typing import Type
 
 from codesync.config import DEFAULT_CONCURRENCY, DEFAULT_SRC_DIR, Config
@@ -10,20 +12,53 @@ from codesync.repo.repo_worker_pool import RepoWorkerPool
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("path", default=None, nargs="?")
+    parser.add_argument("--concurrency", default=DEFAULT_CONCURRENCY, type=int)
+    args = parser.parse_args()
+
     config = Config()
     config.load_config_file()
     config.validate()
     codedir = os.path.expanduser(config.get("src_dir", default=DEFAULT_SRC_DIR))
-    repo_worker_pool = RepoWorkerPool(size=config.get("concurrency", default=DEFAULT_CONCURRENCY))
-    repo_worker_pool.start()
-    for path, host_name in path_glob(f"{codedir}/*").items():
-        ProviderClass: Type[Provider] = {
-            "github.com": GitHubProvider,
-            "generic": GenericProvider,
-        }.get(host_name, GenericProvider)
-        provider = ProviderClass(config=config, path=path, repo_worker_pool=repo_worker_pool)
-        provider.sync()
-    repo_worker_pool.finish().wait()
+
+    concurrency = args.concurrency
+    if args.concurrency == DEFAULT_CONCURRENCY:
+        concurrency = config.get("concurrency", default=DEFAULT_CONCURRENCY)
+    print(f"Concurrency: {concurrency}{' (disabled)' if concurrency == 0 else ''}")
+    repo_worker_pool = RepoWorkerPool(size=concurrency)
+
+    with repo_worker_pool.context():
+        if args.path:
+            path_parts = [part for part in args.path.split(os.path.sep) if part]
+            host_name = None
+            if len(path_parts) == 0:
+                raise Exception(f"Invalid path: {args.path}")
+            host_name = path_parts[0]
+            path = os.path.join(codedir, host_name)
+            ProviderClass = provider_for_host(host_name=host_name)
+            provider = ProviderClass(config=config, path=path, repo_worker_pool=repo_worker_pool)
+            if len(path_parts) > 1:
+                sub_path = os.path.sep.join(path_parts[1:])
+                provider.sync_path(sub_path)
+            else:
+                provider.sync_all()
+        else:
+            for path, host_name in path_glob(f"{codedir}/*").items():
+                ProviderClass = provider_for_host(host_name=host_name)
+                provider = ProviderClass(config=config, path=path, repo_worker_pool=repo_worker_pool)
+                provider.sync_all()
+
+    if repo_worker_pool.errors:
+        print(f"Errors: {len(repo_worker_pool.errors)}")
+        sys.exit(1)
+
+
+def provider_for_host(host_name: str) -> Type[Provider]:
+    return {
+        "github.com": GitHubProvider,
+        "generic": GenericProvider,
+    }.get(host_name, GenericProvider)
 
 
 if __name__ == "__main__":

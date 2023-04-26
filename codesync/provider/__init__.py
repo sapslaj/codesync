@@ -20,5 +20,9 @@ class Provider(abc.ABC):
         return path_glob(self.path_join(path))
 
     @abc.abstractmethod
-    def sync(self) -> None:
+    def sync_all(self) -> None:
+        pass
+
+    @abc.abstractmethod
+    def sync_path(self, path: str) -> None:
         pass

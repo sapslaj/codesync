@@ -3,11 +3,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional, cast
 
 import more_itertools
-from github import Github
+from github import Github, UnknownObjectException
 from github.Repository import Repository
 
 from codesync import RepoAction, RepoState
-from codesync.config import Config
+from codesync.config import Config, DEFAULT_REPO_CLONE_SCHEME
 from codesync.provider import Provider
 from codesync.provider_config.github import GitHubProviderConfig
 from codesync.repo.repo_worker_pool import RepoWorkerPool, RepoWorkerPoolJob
@@ -37,6 +37,11 @@ class GitHubRepoProcessorJob:
         repo = self.repo
         org_name = self.org_name
         repo_name = self.repo_name
+        full_name = f"{org_name}/{repo_name}"
+        enabled = self.repo_config().get("enabled")
+        if not enabled:
+            print(f"{GitHubProvider.provider}/{full_name}: enabled=False")
+            return
         state = self.state
         topics = self.topics
         if not topics:
@@ -50,12 +55,7 @@ class GitHubRepoProcessorJob:
             repo_clone_url = {
                 "https": repo.clone_url,
                 "ssh": repo.ssh_url,
-            }.get(self.repo_config().get("clone_scheme"))
-        full_name = f"{org_name}/{repo_name}"
-        enabled = self.repo_config().get("enabled")
-        if not enabled:
-            print(f"{GitHubProvider.provider}/{full_name}: enabled=False")
-            return
+            }.get(self.repo_config().get("clone_scheme", default=DEFAULT_REPO_CLONE_SCHEME))
         state = self.repo_config().get("state", default=state)
         actions = self.repo_actions_get(repo_name=repo_name, state=state, topics=topics)
         default_branch = self.repo_config().get("default_branch")
@@ -79,7 +79,7 @@ class GitHubRepoProcessorJob:
         repo_name: str,
         state: str,
         topics: Optional[Iterable[str]] = None,
-        default=Optional[Iterable[RepoAction]],
+        default: Optional[Iterable[RepoAction]] = None,
     ) -> list[RepoAction]:
         if default is None:
             default = []
@@ -117,7 +117,7 @@ class GitHubProvider(Provider):
         super().__init__(config=config, path=path, repo_worker_pool=repo_worker_pool)
         self.provider_config = GitHubProviderConfig(config=config)
         self.github = Github(self.provider_config.get("auth", "token", default=os.environ.get("GITHUB_TOKEN")))
-        self.repo_processor_worker_pool = GitHubRepoProcessorWorkerPool(config.get("concurrency"))
+        self.repo_processor_worker_pool = GitHubRepoProcessorWorkerPool(size=repo_worker_pool.size)
 
     def get_org_repos(self, org_name: str) -> Iterable[Repository]:
         user = self.github.get_user(org_name)
@@ -130,22 +130,74 @@ class GitHubProvider(Provider):
         private_repos = [repo for repo in self.github.get_user().get_repos() if repo.owner.login == org_name]
         return list(set(public_repos + private_repos))
 
-    def sync(self):
+    def get_org_repo(self, org_name: str, repo_name: str) -> Repository:
+        return self.github.get_repo(f"{org_name}/{repo_name}")
+
+    def sync_all(self):
         config_orgs: list[str] = [org for org in self.provider_config.get("orgs", default={}).keys() if org != "_"]
         fs_orgs: list[str] = list(self.path_glob("*").values())
-        self.repo_processor_worker_pool.start()
-        for org_name in set(config_orgs + fs_orgs):
-            if org_name.startswith("/"):
-                # skip regex names
-                continue
-            if not self.provider_config.org(org_name).get("enabled"):
-                print(f"{self.provider}/{org_name}: enabled=False")
-                continue
+        with self.repo_processor_worker_pool.context():
+            for org_name in set(config_orgs + fs_orgs):
+                if org_name.startswith("/"):
+                    # skip regex names
+                    continue
+                org_enabled = self.provider_config.org(org_name).get("enabled")
+                if org_enabled is False:
+                    print(f"{self.provider}/{org_name}: enabled=False")
+                    continue
+                jobs = self.org_repo_processor_jobs(org_name=org_name, remote=(org_enabled is True))
+                for job in jobs:
+                    self.repo_processor_worker_pool.push(job)
+
+    def sync_path(self, path: str):
+        path_parts = path.split("/")
+        org_name = None
+        repo_name = None
+        if len(path_parts) == 1:
+            org_name = path_parts[0]
+        elif len(path_parts) == 2:
+            org_name, repo_name = path_parts
+        else:
+            raise Exception(f"invalid path: {path}")
+
+        org_enabled = self.provider_config.org(org_name).get("enabled")
+        if org_enabled is False:
+            print(f"[WARN] {self.provider}/{org_name} is disabled via config")
+
+        with self.repo_processor_worker_pool.context():
+            if repo_name:
+                repo = None
+                try:
+                    repo = self.get_org_repo(org_name=org_name, repo_name=repo_name)
+                    state = "archived" if repo.archived else "active"
+                except UnknownObjectException:
+                    state = "orphaned"
+                repo_path = self.path_join(org_name, repo_name)
+                self.repo_processor_worker_pool.push(
+                    GitHubRepoProcessorJob(
+                        config=self.config,
+                        push_function=self.repo_worker_pool.push,
+                        repo=repo,
+                        org_name=org_name,
+                        repo_name=repo_name,
+                        state=state,
+                        repo_path=repo_path,
+                    )
+                )
+            else:
+                jobs = self.org_repo_processor_jobs(org_name=org_name, remote=(org_enabled is True))
+                for job in jobs:
+                    self.repo_processor_worker_pool.push(job)
+
+    def org_repo_processor_jobs(self, org_name: str, remote: bool = True, local: bool = True) -> Iterable[GitHubRepoProcessorJob]:
+        jobs: list[GitHubRepoProcessorJob] = []
+        remote_repo_names = []
+        if remote:
             repos = self.get_org_repos(org_name=org_name)
             for repo in repos:
                 state = "archived" if repo.archived else "active"
                 repo_path = self.path_join(org_name, repo.name)
-                self.repo_processor_worker_pool.push(
+                jobs.append(
                     GitHubRepoProcessorJob(
                         config=self.config,
                         push_function=self.repo_worker_pool.push,
@@ -156,19 +208,25 @@ class GitHubProvider(Provider):
                         repo_path=repo_path,
                     )
                 )
-            current_repos = self.path_glob(f"{org_name}/*")
             remote_repo_names = [r.name for r in repos]
+        if local:
+            current_repos = self.path_glob(f"{org_name}/*")
             for repo_path, repo_name in current_repos.items():
                 if repo_name in remote_repo_names:
                     continue
-                self.repo_processor_worker_pool.push(
+                try:
+                    repo = self.get_org_repo(org_name=org_name, repo_name=repo_name)
+                    state = "archived" if repo.archived else "active"
+                except UnknownObjectException:
+                    state = "orphaned"
+                jobs.append(
                     GitHubRepoProcessorJob(
                         config=self.config,
                         push_function=self.repo_worker_pool.push,
                         org_name=org_name,
                         repo_name=repo_name,
-                        state="orphaned",
+                        state=state,
                         repo_path=repo_path,
                     )
                 )
-        self.repo_processor_worker_pool.finish().wait()
+        return jobs

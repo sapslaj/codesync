@@ -21,7 +21,7 @@ from codesync import VERSION, RepoCloneScheme
 DEFAULT_SRC_DIR = "~/src"
 DEFAULT_DEFAULT_BRANCH = "main"  # lovely name
 DEFAULT_REPO_CLONE_SCHEME: RepoCloneScheme = "https"
-DEFAULT_CONCURRENCY = 4
+DEFAULT_CONCURRENCY = os.cpu_count() or 4
 
 default_config = {
     "version": VERSION,
@@ -45,7 +45,6 @@ default_config = {
         "github.com": {
             "orgs": {
                 "/.*/": {
-                    "enabled": True,
                     "default_branches": [DEFAULT_DEFAULT_BRANCH],
                     "repos": {
                         "/.*/": {
@@ -146,15 +145,3 @@ class Config:
                 else:
                     return self.get_raw(*before_keys, regex_key, *after_keys, default=default)
         return default
-
-    # def curry(
-    #     self, *path: Iterable[str], keys: Iterable[str], default: Any = None
-    # ) -> Callable[[Iterable[str], Iterable[str], Any]]:
-    #     top_path = path
-    #     top_keys = keys
-    #     top_default = default
-
-    #     def get(*path: Iterable[str], keys: Iterable[str], default: Any = top_default) -> Any:
-    #         return self.get(*top_path, *path, keys=[*top_keys, *keys], default=default)
-
-    #     return get

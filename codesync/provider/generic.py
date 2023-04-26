@@ -13,8 +13,11 @@ class GenericProvider(Provider):
         super().__init__(config=config, path=path, repo_worker_pool=repo_worker_pool)
         self.provider_config = GenericProviderConfig(config=config)
 
-    def sync(self) -> None:
-        for repo_path, repo_name in self.path_glob("*").items():
+    def sync_all(self) -> None:
+        self.sync_path(path="*")
+
+    def sync_path(self, path: str) -> None:
+        for repo_path, repo_name in self.path_glob(path=path).items():
             repo_config = self.provider_config.repo(repo_name)
             if not repo_config.get("enabled"):
                 print(f"{repo_path}: enabled=False")

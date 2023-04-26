@@ -52,12 +52,23 @@ class RepoWorkerPoolJob:
             if exists_locally:
                 run_command(f"rm -rf {repo_path}")
         elif action == "clone":
-            if repo_clone_url:
-                git_clone(
-                    config=self.config,
-                    clone_url=repo_clone_url,
-                    destination=repo_path,
+            if not repo_clone_url:
+                raise Exception(
+                    f"{full_name} cannot be cloned",
+                    f"{provider_name=}",
+                    f"{full_name=}",
+                    f"{repo_name=}",
+                    f"{state=}",
+                    f"{repo_path=}",
+                    f"{repo_clone_url=}",
+                    f"{actions=}",
+                    f"{action=}",
                 )
+            git_clone(
+                config=self.config,
+                clone_url=repo_clone_url,
+                destination=repo_path,
+            )
         elif action == "pull":
             branch = repo_head_branch(repo_path=repo_path)
             if branch and branch in default_branches:
