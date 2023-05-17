@@ -2,6 +2,7 @@ import abc
 from contextlib import contextmanager
 from dataclasses import dataclass
 import queue
+import signal
 import threading
 import traceback
 from typing import Any, Optional
@@ -17,6 +18,7 @@ class JobError:
 
 class WorkerPool(abc.ABC):
     def __init__(self, size: int = DEFAULT_CONCURRENCY) -> None:
+        self.exit = False
         self.size = size
         self.enable_concurrency = True
         if size == 0:
@@ -31,6 +33,8 @@ class WorkerPool(abc.ABC):
             return self
         if self.started:
             return self
+        signal.signal(signal.SIGINT, self._exit_handler)
+        signal.signal(signal.SIGTERM, self._exit_handler)
         [thread.start() for thread in self.threads]
         self.started = True
         return self
@@ -62,14 +66,19 @@ class WorkerPool(abc.ABC):
         self.start()
         try:
             yield self
-        except:
+        except Exception:
             traceback.print_exc()
         finally:
             self.finish()
             self.wait()
 
+    def _exit_handler(self, _sig, _frame):
+        self.exit = True
+
     def _consumer(self, q: queue.Queue):
         while True:
+            if self.exit:
+                break
             try:
                 job = q.get(block=True, timeout=1)
             except queue.Empty:

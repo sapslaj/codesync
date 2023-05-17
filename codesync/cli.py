@@ -1,5 +1,6 @@
 import argparse
 import os
+import signal
 import sys
 from typing import Type
 
@@ -10,8 +11,16 @@ from codesync.provider.generic import GenericProvider
 from codesync.provider.github import GitHubProvider
 from codesync.repo.repo_worker_pool import RepoWorkerPool
 
+def exit_handler(exit_code: int):
+    def handler(_sig, _frame):
+        sys.exit(exit_code)
+    return handler
+
 
 def main():
+    signal.signal(signal.SIGINT, exit_handler(1))
+    signal.signal(signal.SIGTERM, exit_handler(1))
+
     parser = argparse.ArgumentParser()
     parser.add_argument("path", default=None, nargs="?")
     parser.add_argument("--concurrency", default=DEFAULT_CONCURRENCY, type=int)
