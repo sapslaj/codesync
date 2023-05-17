@@ -1,10 +1,10 @@
 import abc
-from contextlib import contextmanager
-from dataclasses import dataclass
 import queue
 import signal
 import threading
 import traceback
+from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from codesync.config import DEFAULT_CONCURRENCY

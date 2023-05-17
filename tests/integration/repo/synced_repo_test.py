@@ -1,7 +1,8 @@
 from typing import cast
-import pytest
-from codesync import RepoAction
 
+import pytest
+
+from codesync import RepoAction
 from codesync.config import Config
 from codesync.repo.synced_repo import SyncedRepo
 

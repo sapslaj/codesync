@@ -7,7 +7,7 @@ from github import Github, UnknownObjectException
 from github.Repository import Repository
 
 from codesync import RepoAction, RepoState
-from codesync.config import Config, DEFAULT_REPO_CLONE_SCHEME
+from codesync.config import DEFAULT_REPO_CLONE_SCHEME, Config
 from codesync.provider import Provider
 from codesync.provider_config.github import GitHubProviderConfig
 from codesync.repo.repo_worker_pool import RepoWorkerPool, RepoWorkerPoolJob
@@ -189,7 +189,9 @@ class GitHubProvider(Provider):
                 for job in jobs:
                     self.repo_processor_worker_pool.push(job)
 
-    def org_repo_processor_jobs(self, org_name: str, remote: bool = True, local: bool = True) -> Iterable[GitHubRepoProcessorJob]:
+    def org_repo_processor_jobs(
+        self, org_name: str, remote: bool = True, local: bool = True
+    ) -> Iterable[GitHubRepoProcessorJob]:
         jobs: list[GitHubRepoProcessorJob] = []
         remote_repo_names = []
         if remote:

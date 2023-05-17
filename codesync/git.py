@@ -1,9 +1,15 @@
 import os
 import re
-from typing import Optional
+import subprocess
+from typing import Iterable, Optional
 
 from codesync.command import run_command
 from codesync.config import Config
+
+
+def _check_output(cmd: Iterable[str], *args, **kwargs):
+    print(" ".join(cmd))
+    return subprocess.check_output(args=cmd, *args, **kwargs)  # type: ignore
 
 
 def git_clone(config: Config, clone_url: str, destination: str):
@@ -22,12 +28,15 @@ def git_pull(config: Config, repo_path: str):
 
 
 def git_clean(repo_path: str):
-    run_command(
-        f"git -C {repo_path} fetch -p "
-        f"&& git -C {repo_path} for-each-ref --format '%(refname:short) %(upstream:track)' "
-        "| awk '$2 == \"[gone]\" {print $1}' "
-        f"| xargs -r git -C {repo_path} branch -D"
+    refs_out = _check_output(
+        ["git", "-C", repo_path, "for-each-ref", "--format", "%(refname:short) %(upstream:track)"]
     )
+    refs: list[str] = refs_out.decode("utf-8").strip().split("\n")
+    for ref in refs:
+        if ref.endswith("[gone]"):
+            ref = ref.removesuffix("[gone]").strip()
+            if repo_head_branch(repo_path) != ref:
+                print(_check_output(["git", "-C", repo_path, "branch", "-D", ref]))
 
 
 def repo_head_branch(repo_path: str) -> Optional[str]:

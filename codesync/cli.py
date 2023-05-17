@@ -11,9 +11,11 @@ from codesync.provider.generic import GenericProvider
 from codesync.provider.github import GitHubProvider
 from codesync.repo.repo_worker_pool import RepoWorkerPool
 
+
 def exit_handler(exit_code: int):
     def handler(_sig, _frame):
         sys.exit(exit_code)
+
     return handler
 
 
