@@ -61,7 +61,12 @@ def main():
                 provider.sync_all()
 
     if repo_worker_pool.errors:
+        print("*" * 80)
         print(f"Errors: {len(repo_worker_pool.errors)}")
+        for i, error in enumerate(repo_worker_pool.errors, 1):
+            print(f"{i}:\t".ljust(75, "*"))
+            print("Job: ", error.job)
+            print("Exception: ", error.exc)
         sys.exit(1)
 
 
