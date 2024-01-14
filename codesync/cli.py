@@ -26,10 +26,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("path", default=None, nargs="?")
     parser.add_argument("--concurrency", default=DEFAULT_CONCURRENCY, type=int)
+    parser.add_argument("--config-file", default=None)
     args = parser.parse_args()
 
     config = Config()
-    config.load_config_file()
+    config.load_config_file(filepath=args.config_file)
     config.validate()
     codedir = os.path.expanduser(config.get("src_dir", default=DEFAULT_SRC_DIR))
 
