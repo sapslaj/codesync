@@ -7,7 +7,7 @@ from github import Github, UnknownObjectException
 from github.Repository import Repository
 
 from codesync import RepoAction, RepoState
-from codesync.config import DEFAULT_REPO_CLONE_SCHEME, Config
+from codesync.config import DEFAULT_DEFAULT_BRANCH, DEFAULT_REPO_CLONE_SCHEME, Config
 from codesync.provider import Provider
 from codesync.provider_config.github import GitHubProviderConfig
 from codesync.repo.repo_worker_pool import RepoWorkerPool, RepoWorkerPoolJob
@@ -60,7 +60,9 @@ class GitHubRepoProcessorJob:
         actions = self.repo_actions_get(repo_name=repo_name, state=state, topics=topics)
         default_branch = self.repo_config().get("default_branch")
         default_branches = set(
-            [default_branch] if default_branch else self.org_config().get("default_branches", default=[])
+            [default_branch]
+            if default_branch
+            else self.org_config().get("default_branches", default=[DEFAULT_DEFAULT_BRANCH])
         )
         return SyncedRepo(
             config=self.config,
