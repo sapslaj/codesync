@@ -10,3 +10,15 @@ target-version = ["py39"]
 profile = "black"
 line_length = 119
 multi_line_output = 3
+
+[project]
+name = "codesync"
+version = "0.9.0"
+dependencies = [
+  "PyGithub>=1.55",
+  "jsonschema>=4",
+  "mergedeep>=1",
+  "more-itertools>=9",
+  "python-gitlab>=5.6.0"
+  "ruyaml>=0.91.0",
+]

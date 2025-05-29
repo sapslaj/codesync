@@ -1,3 +1,5 @@
 mergedeep
+more-itertools
 pygithub
+python-gitlab
 ruyaml

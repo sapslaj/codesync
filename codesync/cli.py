@@ -9,6 +9,7 @@ from codesync.path import path_glob
 from codesync.provider import Provider
 from codesync.provider.generic import GenericProvider
 from codesync.provider.github import GitHubProvider
+from codesync.provider.gitlab import GitLabProvider
 from codesync.repo.repo_worker_pool import RepoWorkerPool
 
 
@@ -73,6 +74,7 @@ def main():
 
 def provider_for_host(host_name: str) -> Type[Provider]:
     return {
+        "gitlab.com": GitLabProvider,
         "github.com": GitHubProvider,
         "generic": GenericProvider,
     }.get(host_name, GenericProvider)
