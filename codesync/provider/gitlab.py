@@ -22,7 +22,7 @@ class GitLabRepoProcessorJob:
     state: RepoState
     repo_path: str
     push_function: Callable[[RepoWorkerPoolJob], Any]
-    topics: Optional[Iterable[str]] = None
+    force_enable: bool = False
     project: Optional[GroupProject | Project] = None
     repo_clone_url: Optional[str] = None
 
@@ -38,11 +38,10 @@ class GitLabRepoProcessorJob:
         project_name = self.project_name
         full_name = f"{group_name}/{project_name}"
         enabled = self.project_config().get("enabled")
-        if not enabled:
+        if not self.force_enable and enabled == False:
             print(f"{GitLabProvider.provider}/{full_name}: enabled=False")
             return
         state = self.state
-        topics = self.topics
         repo_path = self.repo_path
         repo_clone_url = self.repo_clone_url
         if project is not None and not repo_clone_url and self.state != "orphaned":
@@ -55,8 +54,9 @@ class GitLabRepoProcessorJob:
                 )
             )
         state = self.project_config().get("state", default=state)
-        actions = self.repo_actions_get(
-            project_name=project_name, state=state, topics=topics
+        actions = self.project_actions_get(
+            project_name=project_name,
+            state=state,
         )
         default_branch = self.project_config().get("default_branch")
         default_branches = set(
@@ -78,22 +78,19 @@ class GitLabRepoProcessorJob:
             full_name=full_name,
         )
 
-    def repo_actions_get(
+    def project_actions_get(
         self,
         project_name: str,
         state: str,
-        topics: Optional[Iterable[str]] = None,
         default: Optional[Iterable[RepoAction]] = None,
     ) -> list[RepoAction]:
         if default is None:
             default = []
-        if topics is None:
-            topics = []
-        specific_repo_actions = self.org_config().get(
-            "repos", project_name, "actions", state
+        specific_project_actions = self.org_config().get(
+            "projects", project_name, "actions", state
         )
-        if specific_repo_actions:
-            return specific_repo_actions
+        if specific_project_actions:
+            return specific_project_actions
         return self.project_config().get("actions", state, default=default)
 
 
@@ -131,6 +128,30 @@ class GitLabProvider(Provider):
     def get_group_project(self, group_name: str, project_name: str) -> Project:
         return self.gitlab.projects.get(f"{group_name}/{project_name}")
 
+    def get_local_subgroup_names(self, top: str | None = None) -> set[str]:
+        subgroups: set[str] = set()
+
+        def load_potential_subgroups(dir: str):
+            subdirs = [
+                subdir
+                for subdir in os.listdir(dir)
+                if os.path.isdir(os.path.join(dir, subdir))
+            ]
+            if ".git" in subdirs:
+                return
+            group_name = dir.removeprefix(self.path)
+            if group_name:
+                subgroups.add(group_name.removeprefix("/"))
+            for subdir in subdirs:
+                load_potential_subgroups(f"{dir}/{subdir}")
+
+        if top:
+            load_potential_subgroups(f"{self.path}/{top}")
+        else:
+            load_potential_subgroups(self.path)
+
+        return subgroups
+
     @override
     def sync_all(self):
         config_groups: set[str] = set(
@@ -138,17 +159,8 @@ class GitLabProvider(Provider):
             for group in self.provider_config.get("groups", default={}).keys()
             if group != "_"
         )
-        fs_groups: set[str] = set()
+        fs_groups: set[str] = self.get_local_subgroup_names()
 
-        def load_potential_subgroups(dir: str):
-            subdirs = [dir for dir in os.listdir(dir) if os.path.isdir(dir)]
-            if ".git" in subdirs:
-                return
-            fs_groups.add(dir)
-            for subdir in subdirs:
-                load_potential_subgroups(os.path.join(dir, subdir))
-
-        load_potential_subgroups(self.path)
         with self.repo_processor_worker_pool.context():
             for group_name in set(list(config_groups) + list(fs_groups)):
                 if group_name.startswith("/"):
@@ -159,7 +171,8 @@ class GitLabProvider(Provider):
                     print(f"{self.provider}/{group_name}: enabled=False")
                     continue
                 jobs = self.group_project_repo_processor_jobs(
-                    group_name=group_name, remote=(org_enabled is True)
+                    group_name=group_name,
+                    remote=(org_enabled is True),
                 )
                 for job in jobs:
                     self.repo_processor_worker_pool.push(job)
@@ -176,7 +189,7 @@ class GitLabProvider(Provider):
         except gitlab.GitlabGetError:
             path_parts = path.split("/")
             project_name = path_parts[-1]
-            group_name = "/".join(path_parts[1:])
+            group_name = "/".join(path_parts[:-1])
 
         org_enabled = self.provider_config.group(group_name).get("enabled")
         if org_enabled is False:
@@ -203,6 +216,7 @@ class GitLabProvider(Provider):
                         project_name=project_name,
                         state=state,
                         repo_path=repo_path,
+                        force_enable=True,
                     )
                 )
             else:
@@ -213,7 +227,10 @@ class GitLabProvider(Provider):
                     self.repo_processor_worker_pool.push(job)
 
     def group_project_repo_processor_jobs(
-        self, group_name: str, remote: bool = True, local: bool = True
+        self,
+        group_name: str,
+        remote: bool = True,
+        local: bool = True,
     ) -> Iterable[GitLabRepoProcessorJob]:
         jobs: list[GitLabRepoProcessorJob] = []
         remote_project_names = []
@@ -235,7 +252,11 @@ class GitLabProvider(Provider):
                 )
             remote_project_names = [r.path_with_namespace for r in projects]
         if local:
-            current_repos = self.path_glob(f"{group_name}/*")
+            current_repos: dict[str, str] = {}
+            for path, name in self.path_glob(f"{group_name}/*").items():
+                if ".git" not in os.listdir(path):
+                    continue
+                current_repos[path] = name
             for repo_path, project_name in current_repos.items():
                 if project_name in remote_project_names:
                     continue
@@ -246,6 +267,7 @@ class GitLabProvider(Provider):
                     state = "archived" if project.archived else "active"
                 except gitlab.GitlabGetError:
                     state = "orphaned"
+                self.config
                 jobs.append(
                     GitLabRepoProcessorJob(
                         config=self.config,
