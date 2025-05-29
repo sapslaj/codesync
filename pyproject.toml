@@ -19,6 +19,6 @@ dependencies = [
   "jsonschema>=4",
   "mergedeep>=1",
   "more-itertools>=9",
-  "python-gitlab>=5.6.0"
+  "python-gitlab>=5.6.0",
   "ruyaml>=0.91.0",
 ]
