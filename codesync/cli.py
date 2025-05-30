@@ -43,10 +43,17 @@ def main():
 
     with repo_worker_pool.context():
         if args.path:
-            path_parts = [part for part in args.path.split(os.path.sep) if part]
+            input_path: str = args.path
+            input_path = input_path.removeprefix("https://") # allow for copy/pasting URLs
+            input_path = input_path.removeprefix("git@") # allow for copy/pasting SSH clone URLs
+            input_path = input_path.replace(":", "/") # change any ":" to "/" in SSH clone URLs
+            input_path = input_path.removesuffix(".git") # allow for copy/pasting clone URLs
+            if args.path != input_path:
+                print(f"Note: using '{input_path}' instead of '{args.path}'.")
+            path_parts = [part for part in input_path.split(os.path.sep) if part]
             host_name = None
             if len(path_parts) == 0:
-                raise Exception(f"Invalid path: {args.path}")
+                raise Exception(f"Invalid path: {input_path}")
             host_name = path_parts[0]
             path = os.path.join(codedir, host_name)
             ProviderClass = provider_for_host(host_name=host_name)
