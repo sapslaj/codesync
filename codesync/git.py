@@ -1,4 +1,5 @@
 import os
+import pathlib
 import re
 import subprocess
 from typing import Iterable, Optional
@@ -13,6 +14,7 @@ def _check_output(cmd: Iterable[str], *args, **kwargs):
 
 
 def git_clone(config: Config, clone_url: str, destination: str):
+    pathlib.Path(destination).parent.mkdir(parents=True, exist_ok=True)
     args = " ".join(config.get("git", "clone", "args", default=[]))
     run_command(f"git clone --recurse-submodules {clone_url} {destination} {args}")
 
