@@ -1,4 +1,4 @@
-from typing import Iterable, Optional, Tuple, cast
+from typing import Any, Iterable, Optional, Tuple, cast
 
 from codesync.provider_config import ProviderConfig
 
@@ -24,3 +24,21 @@ class GitLabProviderConfig(ProviderConfig):
             path.extend(["projects", "{}"])
             keys.append(self.project_name)
         return path, keys
+
+    def subgroup_get(
+        self,
+        *path: Iterable[str],
+        keys: Optional[Iterable[str]] = None,
+        default: Any = None,
+    ) -> Any:
+        cloned = cast(GitLabProviderConfig, self.extend())
+        while True:
+            value = cloned.get(*path, keys=keys, default=None)
+            if value is not None:
+                return value
+            if cloned.group_name is None:
+                break
+            if cloned.group_name == "":
+                break
+            cloned = cloned.group("/".join(cloned.group_name.split("/")[:-1]))
+        return default
